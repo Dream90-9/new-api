@@ -53,7 +53,7 @@ func main() {
 		return
 	}
 
-	common.SysLog("New API " + common.Version + " started")
+	common.SysLog("service " + common.Version + " started")
 	if os.Getenv("GIN_MODE") != "debug" {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -91,7 +91,7 @@ func main() {
 			model.InitChannelCache()
 		}()
 
-		go model.SyncChannelCache(common.SyncFrequency)
+		// go model.SyncChannelCache(common.SyncFrequency)
 	}
 
 	// Warm pricing after channel cache initialization so Advanced Custom
@@ -99,27 +99,27 @@ func main() {
 	model.GetPricing()
 
 	// 热更新配置
-	go model.SyncOptions(common.SyncFrequency)
+	//go model.SyncOptions(common.SyncFrequency)
 
 	// 周期性重载授权策略，保证多节点/多 master 部署下权限变更能传播到每个实例
-	go authz.StartPolicySync(common.SyncFrequency)
+	//go authz.StartPolicySync(common.SyncFrequency)
 
 	// 数据看板
-	go model.UpdateQuotaData()
+	//go model.UpdateQuotaData()
 
-	if os.Getenv("CHANNEL_UPDATE_FREQUENCY") != "" {
+	/*if os.Getenv("CHANNEL_UPDATE_FREQUENCY") != "" {
 		frequency, err := strconv.Atoi(os.Getenv("CHANNEL_UPDATE_FREQUENCY"))
 		if err != nil {
 			common.FatalLog("failed to parse CHANNEL_UPDATE_FREQUENCY: " + err.Error())
 		}
 		go controller.AutomaticallyUpdateChannels(frequency)
-	}
+	}*/
 
 	// Codex credential auto-refresh check every 10 minutes, refresh when expires within 1 day
 	service.StartCodexCredentialAutoRefreshTask()
 
 	// Subscription quota reset task (daily/weekly/monthly/custom)
-	service.StartSubscriptionQuotaResetTask()
+	/*service.StartSubscriptionQuotaResetTask()
 
 	// Report this process as a system instance so the System Info page can show
 	// all currently alive nodes in multi-instance deployments.
@@ -143,13 +143,13 @@ func main() {
 	// switch are enforced inside the runner and each handler's Enabled().
 	controller.RegisterScheduledSystemTasks()
 	service.StartSystemTaskRunner()
-
+*/
 	if os.Getenv("BATCH_UPDATE_ENABLED") == "true" {
 		common.BatchUpdateEnabled = true
 		common.SysLog("batch update enabled with interval " + strconv.Itoa(common.BatchUpdateInterval) + "s")
 		model.InitBatchUpdater()
 	}
-
+/*
 	if os.Getenv("ENABLE_PPROF") == "true" {
 		gopool.Go(func() {
 			log.Println(http.ListenAndServe("0.0.0.0:8005", nil))
@@ -161,7 +161,7 @@ func main() {
 	err = common.StartPyroScope()
 	if err != nil {
 		common.SysError(fmt.Sprintf("start pyroscope error : %v", err))
-	}
+	}*/
 
 	// Initialize HTTP server
 	server := gin.New()
@@ -171,17 +171,16 @@ func main() {
 	}
 	server.Use(gin.CustomRecovery(func(c *gin.Context, err any) {
 		common.SysLog(fmt.Sprintf("panic detected: %v", err))
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"message": fmt.Sprintf("Panic detected, error: %v. Please submit a issue here: https://github.com/Calcium-Ion/new-api", err),
-				"type":    "new_api_panic",
-			},
-		})
+                c.JSON(http.StatusInternalServerError, gin.H{
+                        "error": gin.H{
+		                "message": fmt.Sprintf("服务内部异常：%v", err),
+	               },
+                })
 	}))
 	// This will cause SSE not to work!!!
 	//server.Use(gzip.Gzip(gzip.DefaultCompression))
 	server.Use(middleware.RequestId())
-	server.Use(middleware.Version())
+	//server.Use(middleware.Version())
 	server.Use(middleware.I18n())
 	middleware.SetUpLogger(server)
 	InjectUmamiAnalytics()
@@ -232,46 +231,11 @@ func main() {
 }
 
 func InjectUmamiAnalytics() {
-	analyticsInjectBuilder := &strings.Builder{}
-	if os.Getenv("UMAMI_WEBSITE_ID") != "" {
-		umamiSiteID := os.Getenv("UMAMI_WEBSITE_ID")
-		umamiScriptURL := os.Getenv("UMAMI_SCRIPT_URL")
-		if umamiScriptURL == "" {
-			umamiScriptURL = "https://analytics.umami.is/script.js"
-		}
-		analyticsInjectBuilder.WriteString("<script defer src=\"")
-		analyticsInjectBuilder.WriteString(umamiScriptURL)
-		analyticsInjectBuilder.WriteString("\" data-website-id=\"")
-		analyticsInjectBuilder.WriteString(umamiSiteID)
-		analyticsInjectBuilder.WriteString("\"></script>")
-	}
-	analyticsInjectBuilder.WriteString("<!--Umami QuantumNous-->\n")
-	analyticsInject := []byte(analyticsInjectBuilder.String())
-	placeholder := []byte("<!--umami-->\n")
-	indexPage = bytes.ReplaceAll(indexPage, placeholder, analyticsInject)
+	// 第三方分析埋点已禁用，避免对外暴露运行时身份与出站请求指纹。
 }
 
 func InjectGoogleAnalytics() {
-	analyticsInjectBuilder := &strings.Builder{}
-	if os.Getenv("GOOGLE_ANALYTICS_ID") != "" {
-		gaID := os.Getenv("GOOGLE_ANALYTICS_ID")
-		// Google Analytics 4 (gtag.js)
-		analyticsInjectBuilder.WriteString("<script async src=\"https://www.googletagmanager.com/gtag/js?id=")
-		analyticsInjectBuilder.WriteString(gaID)
-		analyticsInjectBuilder.WriteString("\"></script>")
-		analyticsInjectBuilder.WriteString("<script>")
-		analyticsInjectBuilder.WriteString("window.dataLayer = window.dataLayer || [];")
-		analyticsInjectBuilder.WriteString("function gtag(){dataLayer.push(arguments);}")
-		analyticsInjectBuilder.WriteString("gtag('js', new Date());")
-		analyticsInjectBuilder.WriteString("gtag('config', '")
-		analyticsInjectBuilder.WriteString(gaID)
-		analyticsInjectBuilder.WriteString("');")
-		analyticsInjectBuilder.WriteString("</script>")
-	}
-	analyticsInjectBuilder.WriteString("<!--Google Analytics QuantumNous-->\n")
-	analyticsInject := []byte(analyticsInjectBuilder.String())
-	placeholder := []byte("<!--Google Analytics-->\n")
-	indexPage = bytes.ReplaceAll(indexPage, placeholder, analyticsInject)
+	// 第三方分析埋点已禁用，避免对外暴露运行时身份与出站请求指纹。
 }
 
 func InitResources() error {

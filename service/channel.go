@@ -43,6 +43,7 @@ func EnableChannel(channelId int, usingKey string, channelName string) {
 }
 
 func ShouldDisableChannel(err *types.NewAPIError) bool {
+/*
 	if !common.AutomaticDisableChannelEnabled {
 		return false
 	}
@@ -62,9 +63,13 @@ func ShouldDisableChannel(err *types.NewAPIError) bool {
 	lowerMessage := strings.ToLower(err.Error())
 	search, _ := AcSearch(lowerMessage, operation_setting.AutomaticDisableKeywords, true)
 	return search
+*/
+        return false
 }
 
 func ShouldEnableChannel(newAPIError *types.NewAPIError, status int) bool {
+        return false
+/*
 	if !common.AutomaticEnableChannelEnabled {
 		return false
 	}
@@ -75,4 +80,5 @@ func ShouldEnableChannel(newAPIError *types.NewAPIError, status int) bool {
 		return false
 	}
 	return true
+*/
 }

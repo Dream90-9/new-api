@@ -42,6 +42,44 @@ func applyUpstreamContentLength(req *http.Request, info *common.RelayInfo) {
 	}
 }
 
+// upstreamIdentityUserAgent 是所有上游 AI 厂商看到的统一 UA。
+// 不使用项目原名，避免成为厂商风控的抓取指纹。
+const upstreamIdentityUserAgent = "Internal-Edu-Gateway/1.0"
+
+// upstreamClientFingerprintHeaderNames 列出可能携带下游客户端特征的请求头。
+// 默认适配器不会从 c.Request.Header 复制这些头到上游请求，本表作防御性兜底。
+var upstreamClientFingerprintHeaderNames = []string{
+	"X-Forwarded-For",
+	"X-Forwarded-Proto",
+	"X-Forwarded-Host",
+	"X-Forwarded-Port",
+	"X-Forwarded-Server",
+	"X-Real-Ip",
+	"X-Client-Ip",
+	"X-Cluster-Client-Ip",
+	"True-Client-Ip",
+	"Cf-Connecting-Ip",
+	"Cf-Ipcountry",
+	"Cf-Ray",
+	"Cf-Visitor",
+	"Forwarded",
+	"Origin",
+	"Referer",
+}
+
+// applyUpstreamIdentitySanitizer 统一覆盖上游请求身份相关 Header。
+// 应在 SetupRequestHeader 之后、Header Override 之前调用：让 provider 适配器先填好业务头，
+// 用户配置的 Header Override 之后仍能覆盖这里设置的默认值。
+func applyUpstreamIdentitySanitizer(header http.Header) {
+	if header == nil {
+		return
+	}
+	header.Set("User-Agent", upstreamIdentityUserAgent)
+	for _, key := range upstreamClientFingerprintHeaderNames {
+		header.Del(key)
+	}
+}
+
 func SetupApiRequestHeader(info *common.RelayInfo, c *gin.Context, req *http.Header) {
 	if info.RelayMode == constant.RelayModeAudioTranscription || info.RelayMode == constant.RelayModeAudioTranslation {
 		// multipart/form-data
@@ -320,6 +358,8 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	if err != nil {
 		return nil, fmt.Errorf("setup request header failed: %w", err)
 	}
+	// 统一上游 UA 并清洗下游客户端特征头，避免厂商风控从中转请求中识别下游客户端身份。
+	applyUpstreamIdentitySanitizer(req.Header)
 	// 在 SetupRequestHeader 之后应用 Header Override，确保用户设置优先级最高
 	// 这样可以覆盖默认的 Authorization header 设置
 	headerOverride, err := processHeaderOverride(info, c)
@@ -352,6 +392,8 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 	if err != nil {
 		return nil, fmt.Errorf("setup request header failed: %w", err)
 	}
+	// 统一上游 UA 并清洗下游客户端特征头，避免厂商风控从中转请求中识别下游客户端身份。
+	applyUpstreamIdentitySanitizer(req.Header)
 	// 在 SetupRequestHeader 之后应用 Header Override，确保用户设置优先级最高
 	// 这样可以覆盖默认的 Authorization header 设置
 	headerOverride, err := processHeaderOverride(info, c)
@@ -376,6 +418,8 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	if err != nil {
 		return nil, fmt.Errorf("setup request header failed: %w", err)
 	}
+	// 统一上游 UA 并清洗下游客户端特征头，避免厂商风控从中转请求中识别下游客户端身份。
+	applyUpstreamIdentitySanitizer(targetHeader)
 	// 在 SetupRequestHeader 之后应用 Header Override，确保用户设置优先级最高
 	// 这样可以覆盖默认的 Authorization header 设置
 	headerOverride, err := processHeaderOverride(info, c)
