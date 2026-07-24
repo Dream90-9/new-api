@@ -111,6 +111,11 @@ func InitEnv() {
 	RelayMaxIdleConns = GetEnvOrDefault("RELAY_MAX_IDLE_CONNS", 500)
 	RelayMaxIdleConnsPerHost = GetEnvOrDefault("RELAY_MAX_IDLE_CONNS_PER_HOST", 100)
 
+	// Per-channel concurrent / RPM caps. Defaults protect small accounts from
+	// ban waves; set to 0 to disable the corresponding check.
+	ChannelMaxConcurrent = GetEnvOrDefault("CHANNEL_MAX_CONCURRENT", 5)
+	ChannelMaxRPM = GetEnvOrDefault("CHANNEL_MAX_RPM", 20)
+
 	// Initialize string variables with GetEnvOrDefaultString
 	GeminiSafetySetting = GetEnvOrDefaultString("GEMINI_SAFETY_SETTING", "BLOCK_NONE")
 	CohereSafetySetting = GetEnvOrDefaultString("COHERE_SAFETY_SETTING", "NONE")

@@ -519,6 +519,12 @@ func DoRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	return doRequest(c, req, info)
 }
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
+	release, slotErr := service.TryAcquireChannelSlot(info.ChannelId)
+	if slotErr != nil {
+		return nil, slotErr
+	}
+	defer release()
+
 	var client *http.Client
 	var err error
 	if info.ChannelSetting.Proxy != "" {

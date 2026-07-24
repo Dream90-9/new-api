@@ -165,6 +165,11 @@ var RelayIdleConnTimeout int // unit is second
 var RelayMaxIdleConns int
 var RelayMaxIdleConnsPerHost int
 
+// 单通道（per-channel）并发与每分钟请求数上限。0 表示禁用对应检查。
+// 用于避免单条上游链路被打满引发风控/封号。
+var ChannelMaxConcurrent int
+var ChannelMaxRPM int
+
 var GeminiSafetySetting string
 
 // https://docs.cohere.com/docs/safety-modes Type; NONE/CONTEXTUAL/STRICT
