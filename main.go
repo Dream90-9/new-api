@@ -93,13 +93,13 @@ func main() {
 	model.GetPricing()
 
 	// 热更新配置
-	//go model.SyncOptions(common.SyncFrequency)
+	go model.SyncOptions(common.SyncFrequency)
 
 	// 周期性重载授权策略，保证多节点/多 master 部署下权限变更能传播到每个实例
-	//go authz.StartPolicySync(common.SyncFrequency)
+	go authz.StartPolicySync(common.SyncFrequency)
 
-	// 数据看板
-	//go model.UpdateQuotaData()
+	// 数据看板：把 CacheQuotaData 内存缓存周期性持久化到 quota_data 表，供仪表盘查询
+	go model.UpdateQuotaData()
 
 	/*if os.Getenv("CHANNEL_UPDATE_FREQUENCY") != "" {
 		frequency, err := strconv.Atoi(os.Getenv("CHANNEL_UPDATE_FREQUENCY"))
@@ -174,7 +174,6 @@ func main() {
 	// This will cause SSE not to work!!!
 	//server.Use(gzip.Gzip(gzip.DefaultCompression))
 	server.Use(middleware.RequestId())
-	//server.Use(middleware.Version())
 	server.Use(middleware.I18n())
 	middleware.SetUpLogger(server)
 	InjectUmamiAnalytics()
