@@ -331,7 +331,7 @@ func TestStreamScannerHandler_PingSentDuringSlowUpstream(t *testing.T) {
 	assert.Equal(t, int64(4), count.Load())
 
 	body := recorder.Body.String()
-	pingCount := strings.Count(body, ": PING")
+	pingCount := strings.Count(body, ": ping")
 	assert.GreaterOrEqual(t, pingCount, 1,
 		"expected at least 1 ping during slow stream with 1s interval; got %d", pingCount)
 }
@@ -375,7 +375,7 @@ func TestStreamScannerHandler_PingDisabledByRelayInfo(t *testing.T) {
 	assert.Equal(t, int64(5), count.Load())
 
 	body := recorder.Body.String()
-	pingCount := strings.Count(body, ": PING")
+	pingCount := strings.Count(body, ": ping")
 	assert.Equal(t, 0, pingCount, "pings should be disabled when DisablePing=true")
 }
 

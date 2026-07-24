@@ -32,13 +32,16 @@ type channelTestHandler struct{}
 func (channelTestHandler) Type() string { return model.SystemTaskTypeChannelTest }
 
 func (channelTestHandler) Enabled() bool {
-	return operation_setting.GetMonitorSetting().AutoTestChannelEnabled
+	ms := operation_setting.GetMonitorSetting()
+	// 仅当显式启用且间隔大于 0 时才会触发自动测试；
+	// minutes=0 视为禁用，避免对上游产生定时探测流量。
+	return ms.AutoTestChannelEnabled && ms.AutoTestChannelMinutes > 0
 }
 
 func (channelTestHandler) Interval() time.Duration {
 	minutes := operation_setting.GetMonitorSetting().AutoTestChannelMinutes
 	if minutes <= 0 {
-		minutes = 10
+		minutes = 1440
 	}
 	return time.Duration(minutes * float64(time.Minute))
 }
