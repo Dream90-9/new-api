@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -48,7 +49,14 @@ func TryAcquireChannelSlot(channelId int) (func(), *types.NewAPIError) {
 	if channelId <= 0 || !common.RedisEnabled {
 		return noopRelease, nil
 	}
-	if common.ChannelMaxConcurrent == 0 && common.ChannelMaxRPM == 0 {
+
+	// Per-channel limit overrides the global default; 0 means unlimited for this channel.
+	maxConcurrent := common.ChannelMaxConcurrent
+	if limit, ok := common.ChannelConcurrentLimits[channelId]; ok {
+		maxConcurrent = limit
+	}
+
+	if maxConcurrent == 0 && common.ChannelMaxRPM == 0 {
 		return noopRelease, nil
 	}
 
@@ -56,18 +64,19 @@ func TryAcquireChannelSlot(channelId int) (func(), *types.NewAPIError) {
 	now := time.Now().Unix()
 	ctx := context.Background()
 
-	if common.ChannelMaxConcurrent > 0 {
+	if maxConcurrent > 0 {
 		key := fmt.Sprintf(channelConcurrentKeyFmt, channelId)
 		result, runErr := channelAcquireScript.Run(ctx, common.RDB, []string{key},
-			now, requestId, common.ChannelMaxConcurrent, channelSlotTTLSeconds).Int()
+			now, requestId, maxConcurrent, channelSlotTTLSeconds).Int()
 		if runErr != nil {
 			// Redis 异常不阻塞业务：放行但不占用槽位（release 也无需做事）。
 			common.SysError(fmt.Sprintf("channel concurrent acquire failed: %v", runErr))
 		} else if result == 0 {
 			return noopRelease, types.NewError(
 				fmt.Errorf("channel %d concurrent limit reached (%d in flight)",
-					channelId, common.ChannelMaxConcurrent),
+					channelId, maxConcurrent),
 				types.ErrorCodeChannelConcurrentLimited,
+				types.ErrOptionWithStatusCode(http.StatusTooManyRequests),
 			)
 		}
 	}
@@ -83,7 +92,7 @@ func TryAcquireChannelSlot(channelId int) (func(), *types.NewAPIError) {
 			}
 			if result > int64(common.ChannelMaxRPM) {
 				// 已被 RPM 拦截，回滚并发槽位避免泄漏。
-				if common.ChannelMaxConcurrent > 0 {
+				if maxConcurrent > 0 {
 					concurrentKey := fmt.Sprintf(channelConcurrentKeyFmt, channelId)
 					_ = common.RDB.ZRem(ctx, concurrentKey, requestId).Err()
 				}
@@ -91,13 +100,14 @@ func TryAcquireChannelSlot(channelId int) (func(), *types.NewAPIError) {
 					fmt.Errorf("channel %d rpm limit reached (%d/min)",
 						channelId, common.ChannelMaxRPM),
 					types.ErrorCodeChannelRpmLimited,
+					types.ErrOptionWithStatusCode(http.StatusTooManyRequests),
 				)
 			}
 		}
 	}
 
 	release := func() {
-		if common.ChannelMaxConcurrent > 0 {
+		if maxConcurrent > 0 {
 			key := fmt.Sprintf(channelConcurrentKeyFmt, channelId)
 			_ = common.RDB.ZRem(ctx, key, requestId).Err()
 		}

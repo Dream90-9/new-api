@@ -130,7 +130,7 @@ var AutomaticEnableChannelEnabled = false
 var QuotaRemindThreshold = 1000
 var PreConsumedQuota = 500
 
-var RetryTimes = 0
+var RetryTimes = 2
 
 //var RootUserEmail = ""
 
@@ -169,6 +169,11 @@ var RelayMaxIdleConnsPerHost int
 // 用于避免单条上游链路被打满引发风控/封号。
 var ChannelMaxConcurrent int
 var ChannelMaxRPM int
+
+// ChannelConcurrentLimits 按渠道 ID 单独配置并发上限，优先级高于 ChannelMaxConcurrent。
+// 格式由环境变量 CHANNEL_CONCURRENT_LIMITS 解析，例如 "1:3,2:3,5:0"。
+// 值为 0 表示该渠道不限制并发；未配置时回退到全局 ChannelMaxConcurrent。
+var ChannelConcurrentLimits map[int]int
 
 var GeminiSafetySetting string
 

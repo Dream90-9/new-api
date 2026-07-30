@@ -116,6 +116,34 @@ func InitEnv() {
 	ChannelMaxConcurrent = GetEnvOrDefault("CHANNEL_MAX_CONCURRENT", 5)
 	ChannelMaxRPM = GetEnvOrDefault("CHANNEL_MAX_RPM", 20)
 
+	// Parse per-channel concurrent limits: "channelId:limit,channelId:limit"
+	// e.g. CHANNEL_CONCURRENT_LIMITS="1:3,2:3,3:3,4:3,5:0"
+	ChannelConcurrentLimits = make(map[int]int)
+	if limitsStr := os.Getenv("CHANNEL_CONCURRENT_LIMITS"); limitsStr != "" {
+		for _, part := range strings.Split(limitsStr, ",") {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			kv := strings.SplitN(part, ":", 2)
+			if len(kv) != 2 {
+				SysError(fmt.Sprintf("invalid CHANNEL_CONCURRENT_LIMITS segment: %s", part))
+				continue
+			}
+			channelId, err := strconv.Atoi(strings.TrimSpace(kv[0]))
+			if err != nil {
+				SysError(fmt.Sprintf("invalid channel id in CHANNEL_CONCURRENT_LIMITS: %s", part))
+				continue
+			}
+			limit, err := strconv.Atoi(strings.TrimSpace(kv[1]))
+			if err != nil {
+				SysError(fmt.Sprintf("invalid limit in CHANNEL_CONCURRENT_LIMITS: %s", part))
+				continue
+			}
+			ChannelConcurrentLimits[channelId] = limit
+		}
+	}
+
 	// Initialize string variables with GetEnvOrDefaultString
 	GeminiSafetySetting = GetEnvOrDefaultString("GEMINI_SAFETY_SETTING", "BLOCK_NONE")
 	CohereSafetySetting = GetEnvOrDefaultString("COHERE_SAFETY_SETTING", "NONE")
