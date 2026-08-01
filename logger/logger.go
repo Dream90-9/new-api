@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -32,6 +33,66 @@ var setupLogWorking bool
 var currentLogPath string
 var currentLogPathMu sync.RWMutex
 var currentLogFile *os.File
+var currentLogWriter *AsyncBufferedWriter
+
+const (
+	asyncLogBufferSize  = 256 * 1024 // 256KB
+	asyncLogFlushPeriod = time.Second
+)
+
+// AsyncBufferedWriter batches log writes in memory and flushes to the underlying
+// writer periodically. This keeps per-request disk I/O and lock contention low.
+type AsyncBufferedWriter struct {
+	mu     sync.Mutex
+	buf    *bufio.Writer
+	file   *os.File
+	ticker *time.Ticker
+	done   chan struct{}
+	once   sync.Once
+}
+
+func NewAsyncBufferedWriter(file *os.File) *AsyncBufferedWriter {
+	w := &AsyncBufferedWriter{
+		buf:    bufio.NewWriterSize(io.MultiWriter(os.Stdout, file), asyncLogBufferSize),
+		file:   file,
+		ticker: time.NewTicker(asyncLogFlushPeriod),
+		done:   make(chan struct{}),
+	}
+	go w.flushLoop()
+	return w
+}
+
+func (w *AsyncBufferedWriter) Write(p []byte) (n int, err error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.Write(p)
+}
+
+func (w *AsyncBufferedWriter) Flush() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.Flush()
+}
+
+func (w *AsyncBufferedWriter) flushLoop() {
+	for {
+		select {
+		case <-w.ticker.C:
+			_ = w.Flush()
+		case <-w.done:
+			_ = w.Flush()
+			return
+		}
+	}
+}
+
+func (w *AsyncBufferedWriter) Close() error {
+	w.once.Do(func() {
+		w.ticker.Stop()
+		close(w.done)
+	})
+	return w.file.Close()
+}
 
 func GetCurrentLogPath() string {
 	currentLogPathMu.RLock()
@@ -57,19 +118,34 @@ func SetupLogger() {
 		if err != nil {
 			log.Fatal("failed to open log file")
 		}
+
+		asyncWriter := NewAsyncBufferedWriter(fd)
+
 		currentLogPathMu.Lock()
-		oldFile := currentLogFile
+		oldWriter := currentLogWriter
 		currentLogPath = logPath
 		currentLogFile = fd
+		currentLogWriter = asyncWriter
 		currentLogPathMu.Unlock()
 
 		common.LogWriterMu.Lock()
-		gin.DefaultWriter = io.MultiWriter(os.Stdout, fd)
-		gin.DefaultErrorWriter = io.MultiWriter(os.Stderr, fd)
-		if oldFile != nil {
-			_ = oldFile.Close()
+		gin.DefaultWriter = asyncWriter
+		gin.DefaultErrorWriter = asyncWriter
+		if oldWriter != nil {
+			_ = oldWriter.Close()
 		}
 		common.LogWriterMu.Unlock()
+	}
+}
+
+// Flush forces the current async log writer to flush its buffer. It should be
+// called during graceful shutdown to avoid losing the last log lines.
+func Flush() {
+	currentLogPathMu.RLock()
+	w := currentLogWriter
+	currentLogPathMu.RUnlock()
+	if w != nil {
+		_ = w.Flush()
 	}
 }
 

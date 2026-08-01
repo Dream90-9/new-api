@@ -164,6 +164,7 @@ var RelayTimeout int // unit is second
 var RelayIdleConnTimeout int // unit is second
 var RelayMaxIdleConns int
 var RelayMaxIdleConnsPerHost int
+var RelayMaxConnsPerHost int
 
 // 单通道（per-channel）并发与每分钟请求数上限。0 表示禁用对应检查。
 // 用于避免单条上游链路被打满引发风控/封号。

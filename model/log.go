@@ -65,13 +65,14 @@ type Log struct {
 	Username          string `json:"username" gorm:"index;index:index_username_model_name,priority:2;default:''"`
 	TokenName         string `json:"token_name" gorm:"index;default:''"`
 	ModelName         string `json:"model_name" gorm:"index;index:index_username_model_name,priority:1;default:''"`
+	UpstreamModelName string `json:"upstream_model_name" gorm:"index;default:''"`
 	Quota             int    `json:"quota" gorm:"default:0"`
 	PromptTokens      int    `json:"prompt_tokens" gorm:"default:0"`
 	CompletionTokens  int    `json:"completion_tokens" gorm:"default:0"`
 	UseTime           int    `json:"use_time" gorm:"default:0"`
 	IsStream          bool   `json:"is_stream"`
 	ChannelId         int    `json:"channel" gorm:"index"`
-	ChannelName       string `json:"channel_name" gorm:"->"`
+	ChannelName       string `json:"channel_name" gorm:"index;default:''"`
 	TokenId           int    `json:"token_id" gorm:"default:0;index"`
 	Group             string `json:"group" gorm:"index"`
 	Ip                string `json:"ip" gorm:"index;default:''"`
@@ -115,7 +116,6 @@ func assignDisplayLogIds(logs []*Log, startIdx int) {
 
 func formatUserLogs(logs []*Log, startIdx int) {
 	for i := range logs {
-		logs[i].ChannelName = ""
 		var otherMap map[string]interface{}
 		otherMap, _ = common.StrToMap(logs[i].Other)
 		if otherMap != nil {
@@ -326,18 +326,20 @@ func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string,
 }
 
 type RecordConsumeLogParams struct {
-	ChannelId        int                    `json:"channel_id"`
-	PromptTokens     int                    `json:"prompt_tokens"`
-	CompletionTokens int                    `json:"completion_tokens"`
-	ModelName        string                 `json:"model_name"`
-	TokenName        string                 `json:"token_name"`
-	Quota            int                    `json:"quota"`
-	Content          string                 `json:"content"`
-	TokenId          int                    `json:"token_id"`
-	UseTimeSeconds   int                    `json:"use_time_seconds"`
-	IsStream         bool                   `json:"is_stream"`
-	Group            string                 `json:"group"`
-	Other            map[string]interface{} `json:"other"`
+	ChannelId         int                    `json:"channel_id"`
+	ChannelName       string                 `json:"channel_name"`
+	PromptTokens      int                    `json:"prompt_tokens"`
+	CompletionTokens  int                    `json:"completion_tokens"`
+	ModelName         string                 `json:"model_name"`
+	UpstreamModelName string                 `json:"upstream_model_name"`
+	TokenName         string                 `json:"token_name"`
+	Quota             int                    `json:"quota"`
+	Content           string                 `json:"content"`
+	TokenId           int                    `json:"token_id"`
+	UseTimeSeconds    int                    `json:"use_time_seconds"`
+	IsStream          bool                   `json:"is_stream"`
+	Group             string                 `json:"group"`
+	Other             map[string]interface{} `json:"other"`
 }
 
 func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams) {
@@ -358,21 +360,23 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 		}
 	}
 	log := &Log{
-		UserId:           userId,
-		Username:         username,
-		CreatedAt:        createdAt,
-		Type:             LogTypeConsume,
-		Content:          params.Content,
-		PromptTokens:     params.PromptTokens,
-		CompletionTokens: params.CompletionTokens,
-		TokenName:        params.TokenName,
-		ModelName:        params.ModelName,
-		Quota:            params.Quota,
-		ChannelId:        params.ChannelId,
-		TokenId:          params.TokenId,
-		UseTime:          params.UseTimeSeconds,
-		IsStream:         params.IsStream,
-		Group:            params.Group,
+		UserId:            userId,
+		Username:          username,
+		CreatedAt:         createdAt,
+		Type:              LogTypeConsume,
+		Content:           params.Content,
+		PromptTokens:      params.PromptTokens,
+		CompletionTokens:  params.CompletionTokens,
+		TokenName:         params.TokenName,
+		ModelName:         params.ModelName,
+		UpstreamModelName: params.UpstreamModelName,
+		Quota:             params.Quota,
+		ChannelId:         params.ChannelId,
+		ChannelName:       params.ChannelName,
+		TokenId:           params.TokenId,
+		UseTime:           params.UseTimeSeconds,
+		IsStream:          params.IsStream,
+		Group:             params.Group,
 		Ip: func() string {
 			if needRecordIp {
 				return c.ClientIP()
@@ -404,16 +408,18 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 }
 
 type RecordTaskBillingLogParams struct {
-	UserId    int
-	LogType   int
-	Content   string
-	ChannelId int
-	ModelName string
-	Quota     int
-	TokenId   int
-	Group     string
-	Other     map[string]interface{}
-	NodeName  string // 任务发起节点；为空时回退当前节点
+	UserId            int
+	LogType           int
+	Content           string
+	ChannelId         int
+	ChannelName       string
+	ModelName         string
+	UpstreamModelName string
+	Quota             int
+	TokenId           int
+	Group             string
+	Other             map[string]interface{}
+	NodeName          string // 任务发起节点；为空时回退当前节点
 }
 
 func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
@@ -429,18 +435,20 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 	}
 	createdAt := common.GetTimestamp()
 	log := &Log{
-		UserId:    params.UserId,
-		Username:  username,
-		CreatedAt: createdAt,
-		Type:      params.LogType,
-		Content:   params.Content,
-		TokenName: tokenName,
-		ModelName: params.ModelName,
-		Quota:     params.Quota,
-		ChannelId: params.ChannelId,
-		TokenId:   params.TokenId,
-		Group:     params.Group,
-		Other:     common.MapToJsonStr(params.Other),
+		UserId:            params.UserId,
+		Username:          username,
+		CreatedAt:         createdAt,
+		Type:              params.LogType,
+		Content:           params.Content,
+		TokenName:         tokenName,
+		ModelName:         params.ModelName,
+		UpstreamModelName: params.UpstreamModelName,
+		Quota:             params.Quota,
+		ChannelId:         params.ChannelId,
+		ChannelName:       params.ChannelName,
+		TokenId:           params.TokenId,
+		Group:             params.Group,
+		Other:             common.MapToJsonStr(params.Other),
 	}
 	err := createLog(log)
 	if err != nil {
@@ -552,7 +560,9 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 			channelMap[channel.Id] = channel.Name
 		}
 		for i := range logs {
-			logs[i].ChannelName = channelMap[logs[i].ChannelId]
+			if logs[i].ChannelName == "" {
+				logs[i].ChannelName = channelMap[logs[i].ChannelId]
+			}
 		}
 	}
 

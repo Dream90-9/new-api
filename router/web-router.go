@@ -19,10 +19,25 @@ type WebAssets struct {
 	IndexPage []byte
 }
 
+func gzipForWebOnly() gin.HandlerFunc {
+	gz := gzip.Gzip(gzip.DefaultCompression)
+	return func(c *gin.Context) {
+		path := c.Request.URL.Path
+		if strings.HasPrefix(path, "/v1/") ||
+			strings.HasPrefix(path, "/api/") ||
+			strings.HasPrefix(path, "/mj/") ||
+			strings.HasPrefix(path, "/pg/") {
+			c.Next()
+			return
+		}
+		gz(c)
+	}
+}
+
 func SetWebRouter(router *gin.Engine, assets WebAssets) {
 	frontendFS := common.EmbedFolder(assets.BuildFS, "web/dist")
 
-	router.Use(gzip.Gzip(gzip.DefaultCompression))
+	router.Use(gzipForWebOnly())
 	router.Use(middleware.GlobalWebRateLimit())
 	router.Use(middleware.Cache())
 	router.Use(static.Serve("/", frontendFS))

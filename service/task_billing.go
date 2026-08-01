@@ -53,14 +53,16 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 	}
 	attachQuotaSaturation(c, info, other)
 	model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
-		ChannelId: info.ChannelId,
-		ModelName: info.OriginModelName,
-		TokenName: tokenName,
-		Quota:     info.PriceData.Quota,
-		Content:   logContent,
-		TokenId:   info.TokenId,
-		Group:     info.UsingGroup,
-		Other:     other,
+		ChannelId:         info.ChannelId,
+		ChannelName:       common.GetContextKeyString(c, constant.ContextKeyChannelName),
+		ModelName:         info.OriginModelName,
+		UpstreamModelName: info.UpstreamModelName,
+		TokenName:         tokenName,
+		Quota:             info.PriceData.Quota,
+		Content:           logContent,
+		TokenId:           info.TokenId,
+		Group:             info.UsingGroup,
+		Other:             other,
 	})
 	model.UpdateUserUsedQuotaAndRequestCount(info.UserId, info.PriceData.Quota)
 	model.UpdateChannelUsedQuota(info.ChannelId, info.PriceData.Quota)
@@ -160,6 +162,19 @@ func taskModelName(task *model.Task) string {
 	return task.Properties.OriginModelName
 }
 
+// taskChannelName 从 channel 缓存中获取任务关联的通道名称。
+func taskChannelName(task *model.Task) string {
+	if channel, err := model.CacheGetChannel(task.ChannelId); err == nil {
+		return channel.Name
+	}
+	return ""
+}
+
+// taskUpstreamModelName 从 Properties 中获取任务实际请求的第三方模型名称。
+func taskUpstreamModelName(task *model.Task) string {
+	return task.Properties.UpstreamModelName
+}
+
 // RefundTaskQuota 统一的任务失败退款逻辑。
 // 当异步任务失败时，将预扣的 quota 退还给用户（支持钱包和订阅），并退还令牌额度。
 // 返回资金来源是否已成功退还；失败时保留 quota 作为后续对账标记。
@@ -183,15 +198,17 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 	other["task_id"] = task.TaskID
 	other["reason"] = reason
 	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
-		UserId:    task.UserId,
-		LogType:   model.LogTypeRefund,
-		Content:   "",
-		ChannelId: task.ChannelId,
-		ModelName: taskModelName(task),
-		Quota:     quota,
-		TokenId:   task.PrivateData.TokenId,
-		Group:     task.Group,
-		Other:     other,
+		UserId:            task.UserId,
+		LogType:           model.LogTypeRefund,
+		Content:           "",
+		ChannelId:         task.ChannelId,
+		ChannelName:       taskChannelName(task),
+		ModelName:         taskModelName(task),
+		UpstreamModelName: taskUpstreamModelName(task),
+		Quota:             quota,
+		TokenId:           task.PrivateData.TokenId,
+		Group:             task.Group,
+		Other:             other,
 	})
 
 	// 4. 资金退款完成后再清除持久化标记；失败时保留非零 quota，
@@ -261,16 +278,18 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 		attachQuotaSaturationToOther(other, clamp)
 	}
 	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
-		UserId:    task.UserId,
-		LogType:   logType,
-		Content:   reason,
-		ChannelId: task.ChannelId,
-		ModelName: taskModelName(task),
-		Quota:     logQuota,
-		TokenId:   task.PrivateData.TokenId,
-		Group:     task.Group,
-		Other:     other,
-		NodeName:  task.PrivateData.NodeName,
+		UserId:            task.UserId,
+		LogType:           logType,
+		Content:           reason,
+		ChannelId:         task.ChannelId,
+		ChannelName:       taskChannelName(task),
+		ModelName:         taskModelName(task),
+		UpstreamModelName: taskUpstreamModelName(task),
+		Quota:             logQuota,
+		TokenId:           task.PrivateData.TokenId,
+		Group:             task.Group,
+		Other:             other,
+		NodeName:          task.PrivateData.NodeName,
 	})
 }
 

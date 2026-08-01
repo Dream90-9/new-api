@@ -110,6 +110,7 @@ func InitEnv() {
 	RelayIdleConnTimeout = GetEnvOrDefault("RELAY_IDLE_CONN_TIMEOUT", 90)
 	RelayMaxIdleConns = GetEnvOrDefault("RELAY_MAX_IDLE_CONNS", 500)
 	RelayMaxIdleConnsPerHost = GetEnvOrDefault("RELAY_MAX_IDLE_CONNS_PER_HOST", 100)
+	RelayMaxConnsPerHost = GetEnvOrDefault("RELAY_MAX_CONNS_PER_HOST", 100)
 
 	// Per-channel concurrent / RPM caps. Defaults protect small accounts from
 	// ban waves; set to 0 to disable the corresponding check.
