@@ -117,6 +117,10 @@ func InitEnv() {
 	ChannelMaxConcurrent = GetEnvOrDefault("CHANNEL_MAX_CONCURRENT", 5)
 	ChannelMaxRPM = GetEnvOrDefault("CHANNEL_MAX_RPM", 20)
 
+	// 用户用量管理阈值：异常消耗（quota 单位）与配额预警百分比。
+	QuotaAnomalyThreshold = GetEnvOrDefault("QUOTA_ANOMALY_THRESHOLD", 25000000)
+	QuotaWarningThresholdPct = GetEnvOrDefault("QUOTA_WARNING_THRESHOLD_PCT", 20)
+
 	// Parse per-channel concurrent limits: "channelId:limit,channelId:limit"
 	// e.g. CHANNEL_CONCURRENT_LIMITS="1:3,2:3,3:3,4:3,5:0"
 	ChannelConcurrentLimits = make(map[int]int)

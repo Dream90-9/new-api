@@ -176,6 +176,13 @@ var ChannelMaxRPM int
 // 值为 0 表示该渠道不限制并发；未配置时回退到全局 ChannelMaxConcurrent。
 var ChannelConcurrentLimits map[int]int
 
+// 用户用量管理：异常消耗阈值与配额预警百分比。
+// 异常阈值单位为 quota（与 users.quota 同单位），默认 25000000（≈$50）；
+// 预警百分比 0-100，表示已用配额占总配额的下限，默认 20。
+// 任一为 0 表示禁用对应检查（管理员可在系统设置里关掉）。
+var QuotaAnomalyThreshold int
+var QuotaWarningThresholdPct int
+
 var GeminiSafetySetting string
 
 // https://docs.cohere.com/docs/safety-modes Type; NONE/CONTEXTUAL/STRICT
