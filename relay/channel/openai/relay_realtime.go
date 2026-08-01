@@ -2,12 +2,13 @@ package openai
 
 import (
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 
@@ -16,20 +17,111 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+const (
+	wssIdleTimeout  = 120 * time.Second
+	wssPingInterval = 30 * time.Second
+	wssWriteTimeout = 10 * time.Second
+)
+
+// wssConnWrapper tracks the last activity time of a WebSocket connection and
+// sends periodic ping frames. If no pong frame is received within the idle
+// timeout, the connection is closed.
+type wssConnWrapper struct {
+	conn         *websocket.Conn
+	name         string
+	lastActivity time.Time
+	mu           sync.RWMutex
+	closed       bool
+}
+
+func newWssConnWrapper(conn *websocket.Conn, name string) *wssConnWrapper {
+	w := &wssConnWrapper{
+		conn:         conn,
+		name:         name,
+		lastActivity: time.Now(),
+	}
+	conn.SetPingHandler(func(appData string) error {
+		w.markActive()
+		return conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(wssWriteTimeout))
+	})
+	conn.SetPongHandler(func(string) error {
+		w.markActive()
+		return nil
+	})
+	conn.SetReadDeadline(time.Now().Add(wssIdleTimeout))
+	return w
+}
+
+func (w *wssConnWrapper) markActive() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.lastActivity = time.Now()
+	_ = w.conn.SetReadDeadline(time.Now().Add(wssIdleTimeout))
+}
+
+func (w *wssConnWrapper) isIdle() bool {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return time.Since(w.lastActivity) > wssIdleTimeout
+}
+
+func (w *wssConnWrapper) writeMessage(messageType int, data []byte) error {
+	_ = w.conn.SetWriteDeadline(time.Now().Add(wssWriteTimeout))
+	return w.conn.WriteMessage(messageType, data)
+}
+
+func (w *wssConnWrapper) close() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed {
+		return
+	}
+	w.closed = true
+	_ = w.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseGoingAway, "idle timeout"), time.Now().Add(wssWriteTimeout))
+	_ = w.conn.Close()
+}
+
+// startWssKeepAlive starts a goroutine that sends ping frames to both ends and
+// closes them if either has been idle for too long. It returns a stop channel.
+func startWssKeepAlive(client, target *wssConnWrapper, stop <-chan struct{}) {
+	go func() {
+		ticker := time.NewTicker(wssPingInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				if client.isIdle() || target.isIdle() {
+					client.close()
+					target.close()
+					return
+				}
+				_ = client.conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(wssWriteTimeout))
+				_ = target.conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(wssWriteTimeout))
+			}
+		}
+	}()
+}
+
 func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.NewAPIError, *dto.RealtimeUsage) {
 	if info == nil || info.ClientWs == nil || info.TargetWs == nil {
 		return types.NewError(fmt.Errorf("invalid websocket connection"), types.ErrorCodeBadResponse), nil
 	}
 
 	info.IsStream = true
-	clientConn := info.ClientWs
-	targetConn := info.TargetWs
+	clientConn := newWssConnWrapper(info.ClientWs, "client")
+	targetConn := newWssConnWrapper(info.TargetWs, "target")
 
 	clientClosed := make(chan struct{})
 	targetClosed := make(chan struct{})
 	sendChan := make(chan []byte, 100)
 	receiveChan := make(chan []byte, 100)
 	errChan := make(chan error, 2)
+
+	keepAliveStop := make(chan struct{})
+	startWssKeepAlive(clientConn, targetConn, keepAliveStop)
+	defer close(keepAliveStop)
 
 	usage := &dto.RealtimeUsage{}
 	localUsage := &dto.RealtimeUsage{}
@@ -46,7 +138,7 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 			case <-c.Done():
 				return
 			default:
-				_, message, err := clientConn.ReadMessage()
+				_, message, err := clientConn.conn.ReadMessage()
 				if err != nil {
 					if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
 						errChan <- fmt.Errorf("error reading from client: %v", err)
@@ -54,6 +146,7 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 					close(clientClosed)
 					return
 				}
+				clientConn.markActive()
 
 				realtimeEvent := &dto.RealtimeEvent{}
 				err = common.Unmarshal(message, realtimeEvent)
@@ -81,7 +174,7 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 				localUsage.InputTokenDetails.TextTokens += textToken
 				localUsage.InputTokenDetails.AudioTokens += audioToken
 
-				err = helper.WssString(c, targetConn, string(message))
+				err = targetConn.writeMessage(websocket.TextMessage, message)
 				if err != nil {
 					errChan <- fmt.Errorf("error writing to target: %v", err)
 					return
@@ -106,7 +199,7 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 			case <-c.Done():
 				return
 			default:
-				_, message, err := targetConn.ReadMessage()
+				_, message, err := targetConn.conn.ReadMessage()
 				if err != nil {
 					if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
 						errChan <- fmt.Errorf("error reading from target: %v", err)
@@ -114,6 +207,7 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 					close(targetClosed)
 					return
 				}
+				targetConn.markActive()
 				info.SetFirstResponseTime()
 				realtimeEvent := &dto.RealtimeEvent{}
 				err = common.Unmarshal(message, realtimeEvent)
@@ -187,7 +281,7 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 					localUsage.OutputTokenDetails.AudioTokens += audioToken
 				}
 
-				err = helper.WssString(c, clientConn, string(message))
+				err = clientConn.writeMessage(websocket.TextMessage, message)
 				if err != nil {
 					errChan <- fmt.Errorf("error writing to client: %v", err)
 					return
@@ -209,6 +303,9 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 		logger.LogError(c, "realtime error: "+err.Error())
 	case <-c.Done():
 	}
+
+	clientConn.close()
+	targetConn.close()
 
 	if usage.TotalTokens != 0 {
 		_ = preConsumeUsage(c, info, usage, sumUsage)
